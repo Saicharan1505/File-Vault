@@ -1,7 +1,10 @@
+
+
 import React, { useState } from 'react';
 import { fileService } from '../services/fileService';
 import { CloudArrowUpIcon } from '@heroicons/react/24/outline';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { FileType } from '../types/file';
 
 interface FileUploadProps {
   onUploadSuccess: () => void;
@@ -10,26 +13,37 @@ interface FileUploadProps {
 export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const uploadMutation = useMutation({
-    mutationFn: fileService.uploadFile,
-    onSuccess: () => {
-      // Invalidate and refetch files query
+    mutationFn: (file: File) => fileService.uploadFile(file),
+    onSuccess: (data: FileType) => {
+      // Refresh file list
       queryClient.invalidateQueries({ queryKey: ['files'] });
+
+      // Show either savings or simple success
+      if (data.deduplicated) {
+        const kbSaved = (data.storage_savings / 1024).toFixed(2);
+        setMessage(`Duplicate detected — you saved ${kbSaved} KB`);
+      } else {
+        setMessage('Upload successful — no savings on first upload');
+      }
+
       setSelectedFile(null);
       onUploadSuccess();
     },
-    onError: (error) => {
+    onError: (err) => {
       setError('Failed to upload file. Please try again.');
-      console.error('Upload error:', error);
+      console.error('Upload error:', err);
     },
   });
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setSelectedFile(event.target.files[0]);
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
       setError(null);
+      setMessage(null);
     }
   };
 
@@ -38,12 +52,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       setError('Please select a file');
       return;
     }
-
     try {
       setError(null);
       await uploadMutation.mutateAsync(selectedFile);
-    } catch (err) {
-      // Error handling is done in onError callback
+    } catch {
+      // onError handles it
     }
   };
 
@@ -53,6 +66,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
         <CloudArrowUpIcon className="h-6 w-6 text-primary-600 mr-2" />
         <h2 className="text-xl font-semibold text-gray-900">Upload File</h2>
       </div>
+
       <div className="mt-4 space-y-4">
         <div className="flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg">
           <div className="space-y-1 text-center">
@@ -76,16 +90,25 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
             <p className="text-xs text-gray-500">Any file up to 10MB</p>
           </div>
         </div>
+
         {selectedFile && (
           <div className="text-sm text-gray-600">
             Selected: {selectedFile.name}
           </div>
         )}
+
         {error && (
           <div className="text-sm text-red-600 bg-red-50 p-2 rounded">
             {error}
           </div>
         )}
+
+        {message && (
+          <div className="text-sm text-green-700 bg-green-50 p-2 rounded">
+            {message}
+          </div>
+        )}
+
         <button
           onClick={handleUpload}
           disabled={!selectedFile || uploadMutation.isPending}
@@ -126,4 +149,4 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       </div>
     </div>
   );
-}; 
+};

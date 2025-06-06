@@ -1,29 +1,67 @@
-import React from 'react';
+
+
+
+// frontend/src/components/FileList.tsx
+
+
+import React, { useState } from 'react';
 import { fileService } from '../services/fileService';
-import { File as FileType } from '../types/file';
+import { FileType } from '../types/file';
 import { DocumentIcon, TrashIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+interface Filters {
+  search: string;
+  file_type: string;
+  size_min: string;
+  size_max: string;
+  uploaded_after: string;
+  uploaded_before: string;
+}
 
 export const FileList: React.FC = () => {
   const queryClient = useQueryClient();
 
-  // Query for fetching files
-  const { data: files, isLoading, error } = useQuery({
-    queryKey: ['files'],
-    queryFn: fileService.getFiles,
+  // Local state for filter inputs
+  const [filters, setFilters] = useState<Filters>({
+    search: '',
+    file_type: '',
+    size_min: '',
+    size_max: '',
+    uploaded_after: '',
+    uploaded_before: '',
   });
 
-  // Mutation for deleting files
-  const deleteMutation = useMutation({
-    mutationFn: fileService.deleteFile,
+  // A trigger counter to re-fetch when "Search" or "Clear" is clicked
+  const [trigger, setTrigger] = useState(0);
+
+  // Parse filter strings into the types expected by fileService.getFiles
+  const parsedFilters = {
+    search: filters.search || undefined,
+    file_type: filters.file_type || undefined,
+    size_min: filters.size_min ? Number(filters.size_min) * 1024 : undefined,
+    size_max: filters.size_max ? Number(filters.size_max) * 1024 : undefined,
+    uploaded_after: filters.uploaded_after || undefined,
+    uploaded_before: filters.uploaded_before || undefined,
+  };
+
+  // useQuery to fetch files; re-runs whenever "trigger" changes
+  const { data: files, isLoading, error } = useQuery<FileType[], Error>({
+    queryKey: ['files', trigger],
+    queryFn: () => fileService.getFiles(parsedFilters),
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation<void, Error, string>({
+    mutationFn: (id: string) => fileService.deleteFile(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['files'] });
     },
   });
 
-  // Mutation for downloading files
-  const downloadMutation = useMutation({
-    mutationFn: ({ fileUrl, filename }: { fileUrl: string; filename: string }) =>
+  // Download mutation
+  const downloadMutation = useMutation<void, Error, { fileUrl: string; filename: string }>({
+    mutationFn: ({ fileUrl, filename }) =>
       fileService.downloadFile(fileUrl, filename),
   });
 
@@ -43,6 +81,33 @@ export const FileList: React.FC = () => {
     }
   };
 
+  // Handle filter input changes
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setFilters((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
+  };
+
+  // When Search is clicked, bump trigger to re-run the query
+  const handleSearch = () => {
+    setTrigger((prev) => prev + 1);
+  };
+
+  // When Clear Filters is clicked, reset filters and re-trigger
+  const handleClear = () => {
+    setFilters({
+      search: '',
+      file_type: '',
+      size_min: '',
+      size_max: '',
+      uploaded_after: '',
+      uploaded_before: '',
+    });
+    setTrigger((prev) => prev + 1);
+  };
+
+  // Render loading state
   if (isLoading) {
     return (
       <div className="p-6">
@@ -58,6 +123,7 @@ export const FileList: React.FC = () => {
     );
   }
 
+  // Render error state
   if (error) {
     return (
       <div className="p-6">
@@ -86,15 +152,132 @@ export const FileList: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
-      <h2 className="text-xl font-semibold text-gray-900 mb-4">Uploaded Files</h2>
+    <div className="p-6 space-y-6">
+      {/* Filter Controls */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {/* 1. Filename search */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Filename</label>
+          <input
+            type="text"
+            name="search"
+            value={filters.search}
+            onChange={handleChange}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+            placeholder="Search by name"
+          />
+        </div>
+
+        {/* 2. File type filter */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">File Type</label>
+          <select
+            name="file_type"
+            value={filters.file_type}
+            onChange={handleChange}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+          >
+            <option value="">All</option>
+            <option value="image/png">PNG</option>
+            <option value="image/jpeg">JPEG</option>
+            <option value="image/gif">GIF</option>
+            <option value="image/svg+xml">SVG</option>
+            <option value="application/pdf">PDF</option>
+            <option value="text/plain">TXT</option>
+            <option value="text/csv">CSV</option>
+            <option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+              DOCX
+            </option>
+            <option value="application/msword">DOC</option>
+            <option value="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+              XLSX
+            </option>
+            <option value="application/vnd.ms-excel">XLS</option>
+            <option value="application/vnd.openxmlformats-officedocument.presentationml.presentation">
+              PPTX
+            </option>
+            <option value="application/vnd.ms-powerpoint">PPT</option>
+            <option value="audio/mpeg">MP3</option>
+            <option value="video/mp4">MP4</option>
+            <option value="application/zip">ZIP</option>
+          </select>
+        </div>
+
+        {/* 3. Min Size (KB) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Min Size (KB)</label>
+          <input
+            type="number"
+            name="size_min"
+            value={filters.size_min}
+            onChange={handleChange}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+            placeholder="0"
+            min="0"
+          />
+        </div>
+
+        {/* 4. Max Size (KB) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Max Size (KB)</label>
+          <input
+            type="number"
+            name="size_max"
+            value={filters.size_max}
+            onChange={handleChange}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+            placeholder="10240" 
+            min="0"
+          />
+        </div>
+
+        {/* 5. Uploaded After */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Uploaded After</label>
+          <input
+            type="date"
+            name="uploaded_after"
+            value={filters.uploaded_after}
+            onChange={handleChange}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+          />
+        </div>
+
+        {/* 6. Uploaded Before */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Uploaded Before</label>
+          <input
+            type="date"
+            name="uploaded_before"
+            value={filters.uploaded_before}
+            onChange={handleChange}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+          />
+        </div>
+      </div>
+
+      {/* Search & Clear Buttons */}
+      <div className="flex space-x-2">
+        <button
+          onClick={handleSearch}
+          className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+        >
+          Search
+        </button>
+        <button
+          onClick={handleClear}
+          className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+        >
+          Clear Filters
+        </button>
+      </div>
+
+      {/* File List */}
       {!files || files.length === 0 ? (
         <div className="text-center py-12">
           <DocumentIcon className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No files</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Get started by uploading a file
-          </p>
+          <p className="mt-1 text-sm text-gray-500">Get started by uploading a file</p>
         </div>
       ) : (
         <div className="mt-6 flow-root">
@@ -142,4 +325,5 @@ export const FileList: React.FC = () => {
       )}
     </div>
   );
-}; 
+};
+

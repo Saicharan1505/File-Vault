@@ -1,6 +1,7 @@
-from django.db import models
-import uuid
 import os
+import uuid
+import hashlib
+from django.db import models
 
 def file_upload_path(instance, filename):
     """Generate file path for new file upload"""
@@ -15,9 +16,10 @@ class File(models.Model):
     file_type = models.CharField(max_length=100)
     size = models.BigIntegerField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
-    
+    sha256_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)
+
     class Meta:
         ordering = ['-uploaded_at']
-    
+
     def __str__(self):
         return self.original_filename
